@@ -1,12 +1,12 @@
 from itertools import cycle
 import random
 import sys
+import qlearning
 
 import pygame
 from pygame.locals import *
 
-
-FPS = 30
+FPS = 60
 SCREENWIDTH  = 288
 SCREENHEIGHT = 512
 # amount by which base can maximum shift to left
@@ -131,8 +131,8 @@ def main():
             getHitmask(IMAGES['player'][2]),
         )
 
-        movementInfo = initialization()
-        mainGame(movementInfo)
+        movementInfo, qvalues = initialization()
+        mainGame(movementInfo, qvalues)
 
 
 def initialization():
@@ -146,16 +146,21 @@ def initialization():
     basex = 0
     # amount by which base can maximum shift to left
     baseShift = IMAGES['base'].get_width() - IMAGES['background'].get_width()
+    # Get current Q-values or initalize new if mno exits
+    # TODO: save computed Q-values!
+    qvalues = qlearning.init_q()
+
     return {
         'playery': playery,
+        'playerx': playerx,
         'basex': basex,
         'playerIndexGen': playerIndexGen,
-    }
+    }, qvalues
 
-def mainGame(movementInfo):
+def mainGame(movementInfo, qvalues):
     score = playerIndex = loopIter = 0
     playerIndexGen = movementInfo['playerIndexGen']
-    playerx, playery = int(SCREENWIDTH * 0.2), movementInfo['playery']
+    playerx, playery = movementInfo['playerx'], movementInfo['playery']
 
     basex = movementInfo['basex']
     baseShift = IMAGES['base'].get_width() - IMAGES['background'].get_width()
@@ -178,8 +183,8 @@ def mainGame(movementInfo):
 
     pipeVelX = -4
 
-    # player velocity, max velocity, downward accleration, accleration on flap
-    playerVelY    =  -9   # player's velocity along Y, default same as playerFlapped
+    # player velocity, max veloc, downward acc, acc. on flap
+    playerVelY    =  -9   # player's velo. along Y, default is playerFlapped
     playerMaxVelY =  10   # max vel along Y, max descend speed
     playerMinVelY =  -8   # min vel along Y, max ascend speed
     playerAccY    =   1   # players downward accleration
@@ -189,33 +194,43 @@ def mainGame(movementInfo):
     playerFlapAcc =  -9   # players speed on flapping
     playerFlapped = False # True when player flaps
 
-
     while True:
+        # the game always has two pipes ready
+        # check if bird is beyond first pipe
+        if lowerPipes[0]['x'] - playerx > -30:
+            currentPipe = lowerPipes[0]
+        else:
+            currentPipe = lowerPipes[1]
+
         for event in pygame.event.get():
-            if event.type == QUIT or (event.type == KEYDOWN and event.key == K_ESCAPE):
-                pygame.quit()
-                sys.exit()
-            if event.type == KEYDOWN and (event.key == K_SPACE or event.key == K_UP):
-                if playery > -2 * IMAGES['player'][0].get_height():
-                    playerVelY = playerFlapAcc
-                    playerFlapped = True
-                    SOUNDS['wing'].play()
+            # do nothing for the events
+            pass
+
+        # observe current state
+        dx = currentPipe['x'] - playerx
+        dy = currentPipe['y'] - playery
+        current_state_hash = qlearning.map_to_state(dx, dy)
+
+        # take an action
+        action = qlearning.select_action(current_state_hash, qvalues)
+        if action == qlearning.JUMP:
+            if playery > -2 * IMAGES['player'][0].get_height():
+                playerVelY = playerFlapAcc
+                playerFlapped = True
+                SOUNDS['wing'].play()
 
         # check for crash here
-        crashTest = checkCrash({'x': playerx, 'y': playery, 'index': playerIndex},
-                               upperPipes, lowerPipes)
-        if crashTest[0]:
-            return {
-                'y': playery,
-                'groundCrash': crashTest[1],
-                'basex': basex,
-                'upperPipes': upperPipes,
-                'lowerPipes': lowerPipes,
-                'score': score,
-                'playerVelY': playerVelY,
-                'playerRot': playerRot
-            }
+        crashTest = checkCrash(
+            {'x': playerx, 'y': playery, 'index': playerIndex}, 
+            upperPipes, lowerPipes
+        )
 
+        # observe reward
+        if crashTest[0]:
+            reward = -1000
+        else:
+            reward = 1
+         
         # check for score
         playerMidPos = playerx + IMAGES['player'][0].get_width() / 2
         for pipe in upperPipes:
@@ -281,8 +296,39 @@ def mainGame(movementInfo):
         playerSurface = pygame.transform.rotate(IMAGES['player'][playerIndex], visibleRot)
         SCREEN.blit(playerSurface, (playerx, playery))
 
-        pygame.display.update()
-        FPSCLOCK.tick(FPS)
+        # select correct pipes to compare distance to
+        if lowerPipes[0]['x'] - playerx > -30:
+            currentPipe = lowerPipes[0]
+        else:
+            currentPipe = lowerPipes[1]
+
+        # observe new state
+        dx = currentPipe['x'] - playerx
+        dy = currentPipe['y'] - playery
+        new_state_hash = qlearning.map_to_state(dx, dy)
+
+        # update q values
+        qlearning.update_qval(qvalues, current_state_hash,
+            new_state_hash, action, reward)
+
+        # end game if crashed in the new state
+        # otherwise continue and commit game updates
+        if crashTest[0]:
+            # TODO: 
+            # save q-values and score!
+            return {
+                'y': playery,
+                'groundCrash': crashTest[1],
+                'basex': basex,
+                'upperPipes': upperPipes,
+                'lowerPipes': lowerPipes,
+                'score': score,
+                'playerVelY': playerVelY,
+                'playerRot': playerRot
+            }
+        else:
+            pygame.display.update()
+            FPSCLOCK.tick(FPS)
 
 def playerShm(playerShm):
     """oscillates the value of playerShm['val'] between 8 and -8"""
@@ -302,10 +348,12 @@ def getRandomPipe():
     gapY += int(BASEY * 0.2)
     pipeHeight = IMAGES['pipe'][0].get_height()
     pipeX = SCREENWIDTH + 10
+    lowerPipeY = gapY + PIPEGAPSIZE
+    upperPipeY = gapY - pipeHeight
 
     return [
-        {'x': pipeX, 'y': gapY - pipeHeight},  # upper pipe
-        {'x': pipeX, 'y': gapY + PIPEGAPSIZE}, # lower pipe
+        {'x': pipeX, 'y': upperPipeY},  # upper pipe
+        {'x': pipeX, 'y': lowerPipeY}, # lower pipe
     ]
 
 

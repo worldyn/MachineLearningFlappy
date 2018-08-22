@@ -28,7 +28,7 @@ setup(
     windows = [{
         'script': "flappy.py",
         'icon_resources': [
-            (1, 'flappy.ico')
+            (1, 'fpy.ico')
         ]
     }],
 
