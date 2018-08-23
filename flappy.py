@@ -97,6 +97,9 @@ def main():
     SOUNDS['swoosh'] = pygame.mixer.Sound('assets/audio/swoosh' + soundExt)
     SOUNDS['wing']   = pygame.mixer.Sound('assets/audio/wing' + soundExt)
 
+    # TODO: load qvalues for every game
+    qvalues = qlearning.init_q()
+
     while True:
         # select random background sprites
         randBg = random.randint(0, len(BACKGROUNDS_LIST) - 1)
@@ -131,7 +134,7 @@ def main():
             getHitmask(IMAGES['player'][2]),
         )
 
-        movementInfo, qvalues = initialization()
+        movementInfo = initialization()
         mainGame(movementInfo, qvalues)
 
 
@@ -148,14 +151,14 @@ def initialization():
     baseShift = IMAGES['base'].get_width() - IMAGES['background'].get_width()
     # Get current Q-values or initalize new if mno exits
     # TODO: save computed Q-values!
-    qvalues = qlearning.init_q()
+    #qvalues = qlearning.init_q()
 
     return {
         'playery': playery,
         'playerx': playerx,
         'basex': basex,
         'playerIndexGen': playerIndexGen,
-    }, qvalues
+    } 
 
 def mainGame(movementInfo, qvalues):
     score = playerIndex = loopIter = 0
@@ -308,8 +311,11 @@ def mainGame(movementInfo, qvalues):
         new_state_hash = qlearning.map_to_state(dx, dy)
 
         # update q values
-        qlearning.update_qval(qvalues, current_state_hash,
+        update_ok = qlearning.update_qval(qvalues, current_state_hash,
             new_state_hash, action, reward)
+        if not update_ok:
+            print("ERROR: could not q value for current state " +
+                current_state_hash + " and new state " + new_state_hash)
 
         # end game if crashed in the new state
         # otherwise continue and commit game updates
