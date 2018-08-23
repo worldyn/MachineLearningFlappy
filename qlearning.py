@@ -1,4 +1,8 @@
 from itertools import chain
+import pickle
+
+# File to save qtable in
+QFILE = 'qvalues.pickle'
 
 # actions
 JUMP = 1
@@ -18,6 +22,19 @@ def init_q():
             # the values are for actions 'jump' and 'do nothing'
             q[str(x) + '_' + str(y)] = [0, 0]
     return q
+
+def save_q(qvalues):
+    with open(QFILE, 'wb') as f:
+        pickle.dump(qvalues, f, protocol=pickle.HIGHEST_PROTOCOL)
+
+def load_q():
+    try:
+        with open(QFILE, 'rb') as f:
+            print("Getting qvalues...")
+            return pickle.load(f)
+    except:
+        print("Initializing new q-table...")
+        return init_q()
 
 # map (dx, dy) to the correct 10x10 grid state
 def map_to_state(dx, dy):

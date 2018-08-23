@@ -6,7 +6,7 @@ import qlearning
 import pygame
 from pygame.locals import *
 
-FPS = 60
+FPS = 100
 SCREENWIDTH  = 288
 SCREENHEIGHT = 512
 # amount by which base can maximum shift to left
@@ -97,10 +97,14 @@ def main():
     SOUNDS['swoosh'] = pygame.mixer.Sound('assets/audio/swoosh' + soundExt)
     SOUNDS['wing']   = pygame.mixer.Sound('assets/audio/wing' + soundExt)
 
-    # TODO: load qvalues for every game
-    qvalues = qlearning.init_q()
+    # learning statistics
+    # TODO: add file for top score and perhaps some more if wanted
+    numIterations = 0
 
     while True:
+        # Load in previous qvalues if exists, otherwise init new q-table
+        qvalues = qlearning.load_q()
+
         # select random background sprites
         randBg = random.randint(0, len(BACKGROUNDS_LIST) - 1)
         IMAGES['background'] = pygame.image.load(BACKGROUNDS_LIST[randBg]).convert()
@@ -136,6 +140,9 @@ def main():
 
         movementInfo = initialization()
         mainGame(movementInfo, qvalues)
+        numIterations += 1
+        # TODO: save numIterations to file
+        print(numIterations)
 
 
 def initialization():
@@ -231,6 +238,7 @@ def mainGame(movementInfo, qvalues):
         # observe reward
         if crashTest[0]:
             reward = -1000
+            qlearning.save_q(qvalues)
         else:
             reward = 1
          
